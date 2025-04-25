@@ -30,6 +30,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <fstream>
+#include <filesystem>
 
 #include <cassert>
 #include <cerrno>
@@ -41,7 +43,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
+//#include <unistd.h>
 
 #include "elf.h"
 #include "patchelf.h"
@@ -180,29 +182,20 @@ struct SysError : std::runtime_error
 static FileContents readFile(const std::string & fileName,
     size_t cutOff = std::numeric_limits<size_t>::max())
 {
-    struct stat st;
-    if (stat(fileName.c_str(), &st) != 0)
-        throw SysError(fmt("getting info about '", fileName, "'"));
+    std::ifstream file(fileName, std::ios::binary);
+    if (!file)
+    {
+        return FileContents{};
+    }
 
-    if (static_cast<uint64_t>(st.st_size) > static_cast<uint64_t>(std::numeric_limits<size_t>::max()))
-        throw SysError(fmt("cannot read file of size ", st.st_size, " into memory"));
+    const std::size_t fileSize = std::filesystem::file_size(fileName);
+    if (fileSize == 0)
+    {
+        return FileContents{};
+    }
 
-    size_t size = std::min(cutOff, static_cast<size_t>(st.st_size));
-
-    FileContents contents = std::make_shared<std::vector<unsigned char>>(size);
-
-    int fd = open(fileName.c_str(), O_RDONLY | O_BINARY);
-    if (fd == -1) throw SysError(fmt("opening '", fileName, "'"));
-
-    size_t bytesRead = 0;
-    ssize_t portion;
-    while ((portion = read(fd, contents->data() + bytesRead, size - bytesRead)) > 0)
-        bytesRead += portion;
-
-    close(fd);
-
-    if (bytesRead != size)
-        throw SysError(fmt("reading '", fileName, "'"));
+    FileContents contents = std::make_shared<std::vector<unsigned char>>(fileSize);
+    file.read((char *)contents.get()->data(), fileSize);
 
     return contents;
 }
@@ -245,6 +238,38 @@ static void checkPointer(const FileContents & contents, const void * p, size_t s
         error("data region extends past file end");
 }
 
+
+#if defined(__has_builtin)
+#  if __has_builtin(__builtin_add_overflow)
+#    define HAVE_BUILTIN_ADD_OVERFLOW 1
+#  endif
+
+#   if __has_buildin(__builtin_mul_overflow)
+#   define HAVE_BUILTIN_MUL_OVERFLOW 1
+#   endif
+#endif
+
+
+#if !defined(HAVE_BUILTIN_ADD_OVERFLOW) || HAVE_BUILTIN_ADD_OVERFLOW == 0
+bool __builtin_add_overflow(std::size_t a, std::size_t b, std::size_t* result)
+{
+    *result = a + b;
+    if (*result < a) 
+    {
+        return true; // overflow
+    }
+    return false;
+}
+#endif
+
+#if !defined(HAVE_BUILTIN_MUL_OVERFLOW) ||  HAVE_BUILTIN_MUL_OVERFLOW == 0
+bool __builtin_mul_overflow(unsigned long long a, unsigned long long b, unsigned long long* result)
+{
+    *result = a * b;
+    if (b != 0 && *result / b != a) return true;
+    return false;
+}
+#endif
 
 static void checkOffset(const FileContents & contents, size_t offset, size_t size)
 {
@@ -446,36 +471,13 @@ void ElfFile<ElfFileParamNames>::sortShdrs()
 
 static void writeFile(const std::string & fileName, const FileContents & contents)
 {
-    debug("writing %s\n", fileName.c_str());
-
-    int fd = open(fileName.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_BINARY, 0777);
-    if (fd == -1)
-        error("open");
-
-    size_t bytesWritten = 0;
-    ssize_t portion;
-    while (bytesWritten < contents->size()) {
-        if ((portion = write(fd, contents->data() + bytesWritten, contents->size() - bytesWritten)) < 0) {
-            if (errno == EINTR)
-                continue;
-            error("write");
-        }
-        bytesWritten += portion;
+    std::ofstream file(fileName, std::ios::binary);
+    if (!file)
+    {
+        return;
     }
 
-    if (close(fd) >= 0)
-        return;
-    /*
-     * Just ignore EINTR; a retry loop is the wrong thing to do.
-     *
-     * http://lkml.indiana.edu/hypermail/linux/kernel/0509.1/0877.html
-     * https://bugzilla.gnome.org/show_bug.cgi?id=682819
-     * http://utcc.utoronto.ca/~cks/space/blog/unix/CloseEINTR
-     * https://sites.google.com/site/michaelsafyan/software-engineering/checkforeintrwheninvokingclosethinkagain
-     */
-    if (errno == EINTR)
-        return;
-    error("close");
+    file.write((char*)contents->data(), contents->size());
 }
 
 
