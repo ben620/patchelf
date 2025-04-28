@@ -118,7 +118,7 @@ private:
     [[nodiscard]] unsigned int getSectionIndex(const SectionName & sectionName) const;
 
     std::string & replaceSection(const SectionName & sectionName,
-        unsigned int size);
+        std::size_t size);
 
     [[nodiscard]] bool hasReplacedSection(const SectionName & sectionName) const;
     [[nodiscard]] bool canReplaceSection(const SectionName & sectionName) const;

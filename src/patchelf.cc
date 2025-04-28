@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
+#pragma warning(disable: 4244 4267)
 #include <algorithm>
 #include <fstream>
 #include <limits>
@@ -652,7 +652,7 @@ bool ElfFile<ElfFileParamNames>::canReplaceSection(const SectionName & sectionNa
 
 template<ElfFileParams>
 std::string & ElfFile<ElfFileParamNames>::replaceSection(const SectionName & sectionName,
-    unsigned int size)
+    std::size_t size)
 {
     auto i = replacedSections.find(sectionName);
     std::string s;
@@ -1242,7 +1242,7 @@ void ElfFile<ElfFileParamNames>::rewriteHeaders(Elf_Addr phdrAddress)
     auto shdrDynamic = tryFindSectionHeader(".dynamic");
     if (shdrDynamic) {
         auto dyn_table = (Elf_Dyn *) (fileContents->data() + rdi((*shdrDynamic).get().sh_offset));
-        unsigned int d_tag;
+        std::size_t d_tag;
         for (auto dyn = dyn_table; (d_tag = rdi(dyn->d_tag)) != DT_NULL; dyn++)
             if (d_tag == DT_STRTAB)
                 dyn->d_un.d_ptr = findSectionHeader(".dynstr").sh_addr;
@@ -1351,7 +1351,7 @@ void ElfFile<ElfFileParamNames>::rewriteHeaders(Elf_Addr phdrAddress)
 
 
 
-static void setSubstr(std::string & s, unsigned int pos, const std::string & t)
+static void setSubstr(std::string & s, std::size_t pos, const std::string & t)
 {
     assert(pos + t.size() <= s.size());
     copy(t.begin(), t.end(), s.begin() + pos);
@@ -1803,7 +1803,7 @@ void ElfFile<ElfFileParamNames>::replaceNeeded(const std::map<std::string, std::
 
     unsigned int verNeedNum = 0;
 
-    unsigned int dynStrAddedBytes = 0;
+    std::size_t dynStrAddedBytes = 0;
     std::unordered_map<std::string, Elf_Off> addedStrings;
 
     for ( ; rdi(dyn->d_tag) != DT_NULL; dyn++) {
@@ -1866,7 +1866,7 @@ void ElfFile<ElfFileParamNames>::replaceNeeded(const std::map<std::string, std::
 
         debug("found .gnu.version_r with %i entries, strings in %s\n", verNeedNum, versionRStringsSName.c_str());
 
-        unsigned int verStrAddedBytes = 0;
+        std::size_t verStrAddedBytes = 0;
         // It may be that it is .dynstr again, in which case we must take the already
         // added bytes into account.
         if (versionRStringsSName == ".dynstr")
@@ -1923,7 +1923,7 @@ void ElfFile<ElfFileParamNames>::addNeeded(const std::set<std::string> & libs)
     auto shdrDynamic = findSectionHeader(".dynamic");
     auto shdrDynStr = findSectionHeader(".dynstr");
 
-    unsigned int length = 0;
+    std::size_t length = 0;
 
     /* add all new libs to the dynstr string table */
     for (auto &lib : libs)
@@ -1933,7 +1933,7 @@ void ElfFile<ElfFileParamNames>::addNeeded(const std::set<std::string> & libs)
         rdi(shdrDynStr.sh_size) + length + 1);
 
     std::set<Elf64_Xword> libStrings;
-    unsigned int pos = 0;
+    std::size_t pos = 0;
     for (auto & i : libs) {
         setSubstr(newDynStr, rdi(shdrDynStr.sh_size) + pos, i + '\0');
         libStrings.insert(rdi(shdrDynStr.sh_size) + pos);
@@ -2750,6 +2750,7 @@ static int mainWrapped(int argc, char * * argv)
     return 0;
 }
 
+#ifndef _DLL
 int main(int argc, char * * argv)
 {
 #ifdef __OpenBSD__
@@ -2764,3 +2765,12 @@ int main(int argc, char * * argv)
         return 1;
     }
 }
+#else
+bool PatchElfLibMain(const std::string& targetUELib, const std::string& toBeInjectedName)
+{
+    neededLibsToAdd.insert(toBeInjectedName);
+    fileNames.push_back(targetUELib);
+    patchElf();
+    return true;
+}
+#endif
