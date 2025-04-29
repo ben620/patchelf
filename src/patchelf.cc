@@ -2750,7 +2750,7 @@ static int mainWrapped(int argc, char * * argv)
     return 0;
 }
 
-#ifndef _DLL
+#ifndef PATCH_ELF_AS_DLL
 int main(int argc, char * * argv)
 {
 #ifdef __OpenBSD__
